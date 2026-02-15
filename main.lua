@@ -1,39 +1,27 @@
--- [[ ตรวจสอบการโหลด Rayfield ]]
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-end)
+-- === [ ⚡ ระบบ Auto-Capture (Improved V25) ] ===
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+setreadonly(mt, false)
 
-if not success or not Rayfield then
-    warn("ไม่สามารถโหลด Rayfield UI ได้! กรุณาเช็คอินเทอร์เน็ตหรือ URL")
-    return
-end
-
-local HttpService = game:GetService("HttpService")
-local RS = game:GetService("ReplicatedStorage")
-local LP = game:GetService("Players").LocalPlayer
-
--- === [ Variables ] ===
-local Macro = {}
-local Recording = false
-local Playing = false
-local CurrentActionIndex = 1
-local TargetRemote = nil -- ตัวแปรเก็บ Remote ที่ใช้ส่งข้อมูล
-
--- === [ ฟังก์ชันหา Remote อัตโนมัติ ] ===
--- ระบบจะพยายามหา RemoteFunction หรือ RemoteEvent ที่เกมใช้ส่งข้อมูล
-local function FindRemote()
-    -- ลองหาชื่อยอดนิยมในเกมแนว Tower Defense
-    local names = {"ByteNetQuery", "RemoteFunction", "GameRemote", "Network"}
-    for _, name in pairs(names) do
-        local found = RS:FindFirstChild(name)
-        if found then return found end
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    -- ดักจับทั้ง InvokeServer และ FireServer ที่ผ่าน ByteNetQuery
+    if (method == "InvokeServer" or method == "FireServer") and self.Name == "ByteNetQuery" then
+        if Recording then
+            table.insert(Macro, {
+                Args = args,
+                Wave = GetWave(),
+                RequiredMoney = GetMoney(),
+                Label = "Action #" .. (#Macro + 1)
+            })
+            Rayfield:Notify({Title="บันทึกแล้ว", Content="จำการวาง/อัปเกรดสำเร็จ!", Duration=1})
+        end
     end
-    return nil
-end
-
-TargetRemote = FindRemote()
-
--- === [ UI Window ] ===
+    return oldNamecall(self, ...)
+end)
+setreadonly(mt, true)
 local Window = Rayfield:CreateWindow({
    Name = "RTD | HYBRID PRO V25",
    LoadingTitle = "Starting Hybrid System...",
