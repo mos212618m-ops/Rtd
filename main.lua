@@ -124,3 +124,14 @@ FileTab:CreateButton({
       Rayfield:Notify({Title="Success", Content="เซฟไฟล์ไฮบริดแล้ว", Duration=2})
    end
 })
+FileTab:CreateButton({
+   Name = "📂 โหลดไฟล์จาก Workspace",
+   Callback = function()
+      if isfile("RTD_Hybrid_Macro.json") then
+          Macro = HttpService:JSONDecode(readfile("RTD_Hybrid_Macro.json"))
+          Rayfield:Notify({Title="Success", Content="โหลดข้อมูลมาโครสำเร็จ!", Duration=2})
+      else
+          Rayfield:Notify({Title="Error", Content="ไม่พบไฟล์เซฟใน Workspace", Duration=2})
+      end
+   end
+})
