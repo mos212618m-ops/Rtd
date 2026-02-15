@@ -2,14 +2,14 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local HttpService = game:GetService("HttpService")
 
 local Window = Rayfield:CreateWindow({
-   Name = "RTD | HYBRID PRO V24",
-   LoadingTitle = "Wave + Money + Queue System",
+   Name = "RTD | HYBRID PRO V24.1",
+   LoadingTitle = "Improved Capture & Notify System",
    ConfigurationSaving = { Enabled = false }
 })
 
 -- === [ Variables ] ===
 local RS = game:GetService("ReplicatedStorage")
-local B_Query = RS:WaitForChild("ByteNetQuery")
+local B_Query = RS:WaitForChild("ByteNetQuery", 15)
 local LP = game:GetService("Players").LocalPlayer
 
 local Macro = {}
@@ -17,23 +17,149 @@ local Recording = false
 local Playing = false
 local CurrentActionIndex = 1
 
--- === [ Get Game Data Functions ] ===
+-- === [ Helper Functions ] ===
 local function GetWave()
     local waveVal = workspace:FindFirstChild("Wave") or RS:FindFirstChild("Wave")
-    if waveVal and waveVal:IsA("IntValue") then return waveVal.Value end
-    return 0
+    return (waveVal and waveVal.Value) or 0
 end
 
 local function GetMoney()
-    -- ปรับตำแหน่งตามตัวแปรเงินในเกมของคุณ (ปกติจะเป็น leaderstats หรือ PlayerGui)
     local stats = LP:FindFirstChild("leaderstats")
-    if stats and stats:FindFirstChild("Money") then
-        return stats.Money.Value
-    elseif LP.PlayerGui:FindFirstChild("GameGui") then
-        -- กรณีเงินอยู่ใน UI
-        local moneyText = LP.PlayerGui.GameGui.MoneyLabel.Text
-        return tonumber(moneyText:gsub("%D", "")) or 0
+    if stats and stats:FindFirstChild("Money") then return stats.Money.Value end
+    return 0
+end
+
+-- === [ ⚡ ระบบดักจับการกระทำ (Improved Hook) ] ===
+-- หาก B_Query ไม่ทำงาน ให้ตรวจสอบว่าเกมใช้ RemoteEvent หรือ RemoteFunction อื่นหรือไม่
+local oldInvoke
+oldInvoke = hookfunction(B_Query.InvokeServer, function(self, ...)
+    local args = {...}
+    if Recording then
+        -- บันทึกข้อมูล
+        table.insert(Macro, {
+            Args = args,
+            Wave = GetWave(),
+            RequiredMoney = GetMoney(),
+            Label = "Action #" .. (#Macro + 1)
+        })
+        -- แจ้งเตือนทุกครั้งที่กด (เพื่อให้รู้ว่าบันทึกติดไหม)
+        Rayfield:Notify({
+            Title = "บันทึกสำเร็จ ✅",
+            Content = "ลำดับที่: " .. #Macro .. " | Wave: " .. GetWave(),
+            Duration = 1
+        })
     end
+    return oldInvoke(self, ...)
+end)
+
+-- === [ UI Tabs ] ===
+local Main = Window:CreateTab("Macro Controls", 4483362458)
+local StatusTab = Window:CreateTab("Status", 4483362458)
+
+local NextLabel = StatusTab:CreateLabel("Next: Waiting...")
+local CountLabel = StatusTab:CreateLabel("Total Actions: 0")
+
+-- === [ 🔴 Toggle บันทึก ] ===
+Main:CreateToggle({
+   Name = "🔴 เริ่มการบันทึก (Recording)",
+   CurrentValue = false,
+   Callback = function(v)
+      Recording = v
+      if v then
+          Macro = {} -- ล้างค่าเก่า
+          Rayfield:Notify({
+              Title = "เริ่มบันทึกแล้ว!",
+              Content = "ระบบกำลังดักจับการวางยูนิตของคุณ...",
+              Duration = 3
+          })
+      else
+          -- เมื่อกดปิด (หยุดอัด) ให้แจ้งเตือนสรุปผล
+          Rayfield:Notify({
+              Title = "หยุดการบันทึกแล้ว ⏹️",
+              Content = "บันทึกไปทั้งหมด: " .. #Macro .. " การกระทำ",
+              Duration = 5
+          })
+          CountLabel:Set("Total Actions: " .. #Macro)
+      end
+   end
+})
+
+-- === [ ▶️ Toggle รันมาโคร ] ===
+Main:CreateToggle({
+   Name = "▶️ รันมาโคร (Auto Play)",
+   CurrentValue = false,
+   Callback = function(v)
+      Playing = v
+      if v then
+          if #Macro == 0 then
+              Rayfield:Notify({Title="Error", Content="ไม่มีข้อมูลมาโคร! กรุณาอัดหรือโหลดไฟล์ก่อน", Duration=3})
+              return
+          end
+          
+          CurrentActionIndex = 1
+          Rayfield:Notify({Title="Started!", Content="เริ่มทำงานลำดับที่ 1 จาก " .. #Macro, Duration=3})
+          
+          task.spawn(function()
+              while Playing do
+                  local action = Macro[CurrentActionIndex]
+                  if not action then 
+                      NextLabel:Set("✅ จบการทำงานทั้งหมดแล้ว")
+                      Playing = false
+                      break 
+                  end
+
+                  local currentWave = GetWave()
+                  local currentMoney = GetMoney()
+
+                  -- เงื่อนไข: Wave ถึง และ เงินถึง
+                  if currentWave >= action.Wave and currentMoney >= action.RequiredMoney then
+                      NextLabel:Set("🚀 กำลังส่งข้อมูล: " .. action.Label)
+                      
+                      -- พยายามส่งข้อมูลไปที่ Server
+                      local success, err = pcall(function()
+                          return B_Query:InvokeServer(unpack(action.Args))
+                      end)
+
+                      if success then
+                          CurrentActionIndex = CurrentActionIndex + 1
+                          task.wait(0.7) -- หน่วงเวลาเล็กน้อยเพื่อให้เซิร์ฟเวอร์ตอบรับ
+                      else
+                          warn("วางไม่สำเร็จ: " .. tostring(err))
+                          task.wait(1) -- ถ้า Error ให้รอแป๊บหนึ่งแล้วลองใหม่ใน Loop หน้า
+                      end
+                  else
+                      -- แสดงสถานะการรอ
+                      NextLabel:Set("⏳ รอ " .. action.Label .. " (W:" .. action.Wave .. "/M:" .. action.RequiredMoney .. ")")
+                  end
+                  task.wait(0.3)
+              end
+          end)
+      end
+   end
+})
+
+-- === [ File Management ] ===
+local FileTab = Window:CreateTab("Files", 4483362458)
+FileTab:CreateButton({
+   Name = "💾 เซฟลงไฟล์",
+   Callback = function()
+      writefile("RTD_Hybrid_Macro.json", HttpService:JSONEncode(Macro))
+      Rayfield:Notify({Title="Saved!", Content="เซฟมาโคร " .. #Macro .. " รายการลงไฟล์แล้ว", Duration=3})
+   end
+})
+
+FileTab:CreateButton({
+   Name = "📂 โหลดจากไฟล์",
+   Callback = function()
+      if isfile("RTD_Hybrid_Macro.json") then
+          Macro = HttpService:JSONDecode(readfile("RTD_Hybrid_Macro.json"))
+          CountLabel:Set("Total Actions: " .. #Macro)
+          Rayfield:Notify({Title="Loaded!", Content="โหลดมาโคร " .. #Macro .. " รายการแล้ว", Duration=3})
+      else
+          Rayfield:Notify({Title="Error", Content="ไม่พบไฟล์เซฟ", Duration=3})
+      end
+   end
+})
     return 0
 end
 
