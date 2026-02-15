@@ -1,39 +1,155 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- [[ ตรวจสอบการโหลด Rayfield ]]
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if not success or not Rayfield then
+    warn("ไม่สามารถโหลด Rayfield UI ได้! กรุณาเช็คอินเทอร์เน็ตหรือ URL")
+    return
+end
+
 local HttpService = game:GetService("HttpService")
-
-local Window = Rayfield:CreateWindow({
-   Name = "RTD | HYBRID PRO V24.1",
-   LoadingTitle = "Improved Capture & Notify System",
-   ConfigurationSaving = { Enabled = false }
-})
-
--- === [ Variables ] ===
 local RS = game:GetService("ReplicatedStorage")
-local B_Query = RS:WaitForChild("ByteNetQuery", 15)
 local LP = game:GetService("Players").LocalPlayer
 
+-- === [ Variables ] ===
 local Macro = {}
 local Recording = false
 local Playing = false
 local CurrentActionIndex = 1
+local TargetRemote = nil -- ตัวแปรเก็บ Remote ที่ใช้ส่งข้อมูล
 
--- === [ Helper Functions ] ===
+-- === [ ฟังก์ชันหา Remote อัตโนมัติ ] ===
+-- ระบบจะพยายามหา RemoteFunction หรือ RemoteEvent ที่เกมใช้ส่งข้อมูล
+local function FindRemote()
+    -- ลองหาชื่อยอดนิยมในเกมแนว Tower Defense
+    local names = {"ByteNetQuery", "RemoteFunction", "GameRemote", "Network"}
+    for _, name in pairs(names) do
+        local found = RS:FindFirstChild(name)
+        if found then return found end
+    end
+    return nil
+end
+
+TargetRemote = FindRemote()
+
+-- === [ UI Window ] ===
+local Window = Rayfield:CreateWindow({
+   Name = "RTD | HYBRID PRO V25",
+   LoadingTitle = "Starting Hybrid System...",
+   ConfigurationSaving = { Enabled = false }
+})
+
+-- === [ Tabs ] ===
+local Main = Window:CreateTab("Main", 4483362458)
+local FileTab = Window:CreateTab("Files", 4483362458)
+
+local StatusLabel = Main:CreateLabel("Status: Ready")
+local CountLabel = Main:CreateLabel("Recorded: 0 Actions")
+
+-- === [ Logic Functions ] ===
 local function GetWave()
-    local waveVal = workspace:FindFirstChild("Wave") or RS:FindFirstChild("Wave")
-    return (waveVal and waveVal.Value) or 0
+    local w = workspace:FindFirstChild("Wave") or RS:FindFirstChild("Wave")
+    return (w and w.Value) or 0
 end
 
 local function GetMoney()
-    local stats = LP:FindFirstChild("leaderstats")
-    if stats and stats:FindFirstChild("Money") then return stats.Money.Value end
+    local s = LP:FindFirstChild("leaderstats")
+    if s and s:FindFirstChild("Money") then return s.Money.Value end
     return 0
 end
 
--- === [ ⚡ ระบบดักจับการกระทำ (Improved Hook) ] ===
--- หาก B_Query ไม่ทำงาน ให้ตรวจสอบว่าเกมใช้ RemoteEvent หรือ RemoteFunction อื่นหรือไม่
-local oldInvoke
-oldInvoke = hookfunction(B_Query.InvokeServer, function(self, ...)
-    local args = {...}
+-- === [ ⚡ ระบบดักจับ (Hooking) ] ===
+if TargetRemote and TargetRemote:IsA("RemoteFunction") then
+    local oldInvoke
+    oldInvoke = hookfunction(TargetRemote.InvokeServer, function(self, ...)
+        local args = {...}
+        if Recording then
+            table.insert(Macro, {
+                Args = args,
+                Wave = GetWave(),
+                Money = GetMoney(),
+                Label = "Action #" .. (#Macro + 1)
+            })
+            Rayfield:Notify({Title="บันทึกแล้ว!", Content="บันทึกการกระทำที่ "..#Macro, Duration=1})
+            CountLabel:Set("Recorded: " .. #Macro .. " Actions")
+        end
+        return oldInvoke(self, ...)
+    end)
+else
+    Rayfield:Notify({Title="Warning", Content="ไม่พบ Remote สำหรับบันทึกอัตโนมัติ", Duration=5})
+end
+
+-- === [ UI Controls ] ===
+
+Main:CreateToggle({
+   Name = "🔴 เริ่มบันทึก (Recording)",
+   CurrentValue = false,
+   Callback = function(v)
+      Recording = v
+      if v then
+          Macro = {}
+          CountLabel:Set("Recorded: 0 Actions")
+          Rayfield:Notify({Title="System", Content="เริ่มการบันทึก... กรุณาวางยูนิต", Duration=2})
+      else
+          Rayfield:Notify({Title="System", Content="หยุดบันทึก! ทั้งหมด: "..#Macro.." รายการ", Duration=3})
+      end
+   end
+})
+
+Main:CreateToggle({
+   Name = "▶️ รันมาโคร (Auto Play)",
+   CurrentValue = false,
+   Callback = function(v)
+      Playing = v
+      if v then
+          CurrentActionIndex = 1
+          task.spawn(function()
+              while Playing do
+                  local action = Macro[CurrentActionIndex]
+                  if not action then 
+                      StatusLabel:Set("Status: ✅ จบการทำงาน")
+                      break 
+                  end
+
+                  if GetWave() >= action.Wave and GetMoney() >= action.Money then
+                      StatusLabel:Set("Status: 🚀 กำลังทำ "..action.Label)
+                      pcall(function()
+                          TargetRemote:InvokeServer(unpack(action.Args))
+                      end)
+                      CurrentActionIndex = CurrentActionIndex + 1
+                      task.wait(0.5)
+                  else
+                      StatusLabel:Set("Status: ⏳ รอเงิน/เวฟ ("..action.Label..")")
+                  end
+                  task.wait(0.2)
+              end
+          end)
+      end
+   end
+})
+
+-- === [ File Management ] ===
+FileTab:CreateButton({
+   Name = "💾 Save to File",
+   Callback = function()
+      writefile("RTD_Macro_V25.json", HttpService:JSONEncode(Macro))
+      Rayfield:Notify({Title="Saved", Content="บันทึกลงเครื่องแล้ว", Duration=2})
+   end
+})
+
+FileTab:CreateButton({
+   Name = "📂 Load from File",
+   Callback = function()
+      if isfile("RTD_Macro_V25.json") then
+          Macro = HttpService:JSONDecode(readfile("RTD_Macro_V25.json"))
+          CountLabel:Set("Recorded: " .. #Macro .. " Actions")
+          Rayfield:Notify({Title="Loaded", Content="โหลดไฟล์สำเร็จ", Duration=2})
+      else
+          Rayfield:Notify({Title="Error", Content="ไม่พบไฟล์เซฟ", Duration=2})
+      end
+   end
+})
     if Recording then
         -- บันทึกข้อมูล
         table.insert(Macro, {
