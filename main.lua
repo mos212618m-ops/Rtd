@@ -1,474 +1,84 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-local HttpService = game:GetService("HttpService")
+-- [[ ส่วนที่พี่ต้องการให้รันตลอดเวลา ]]
+task.spawn(function()
+    while true do
+        local success, err = pcall(function()
+            local args = {
+                [1] = {
+                    [1] = {
+                        [1] = "\226\129\130("
+                    }
+                }
+            }
 
-local Window = Rayfield:CreateWindow({
-   Name = "RTD | HYBRID ULTIMATE V25",
-   LoadingTitle = "Universal Capture System",
-   ConfigurationSaving = { Enabled = false }
-})
-
--- === [ Variables ] ===
-local RS = game:GetService("ReplicatedStorage")
-local B_Query = RS:WaitForChild("ByteNetQuery")
-local LP = game:GetService("Players").LocalPlayer
-
-local Macro = {}
-local Recording = false
-local Playing = false
-local CurrentActionIndex = 1
-
--- === [ Get Game Data Functions ] ===
-local function GetWave()
-    local waveVal = workspace:FindFirstChild("Wave") or RS:FindFirstChild("Wave")
-    if waveVal and waveVal:IsA("IntValue") then return waveVal.Value end
-    return 0
-end
-
-local function GetMoney()
-    local stats = LP:FindFirstChild("leaderstats")
-    if stats and stats:FindFirstChild("Money") then
-        return stats.Money.Value
-    elseif LP.PlayerGui:FindFirstChild("GameGui") then
-        local moneyText = LP.PlayerGui.GameGui.MoneyLabel.Text
-        return tonumber(moneyText:gsub("%D", "")) or 0
+            local remote = game:GetService("ReplicatedStorage")
+                :WaitForChild("NetworkingContainer", 5)
+                :WaitForChild("DataRemote", 5)
+                
+            if remote then
+                remote:FireServer(unpack(args))
+            end
+        end)
+        
+        task.wait(0.1) -- ส่งรัวๆ ทุก 0.1 วินาที
     end
-    return 0
+end)
+
+-- [[ ส่วนโค้ดวาร์ป + จิ้มหน้าจอ (ยังทำงานปกติ) ]]
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local player = game.Players.LocalPlayer
+local lobbyPlaceId = 93712201161812 
+
+local function isInLobby()
+    return game.PlaceId == lobbyPlaceId
 end
 
--- === [ Tabs ] ===
-local Main = Window:CreateTab("Macro", 4483362458)
-local StatusTab = Window:CreateTab("Status", 4483362458)
-local FileTab = Window:CreateTab("Files", 4483362458)
+local function forceClickStart()
+    local lobby = player.PlayerGui:FindFirstChild("Lobby")
+    if not lobby then return end
 
-local NextLabel = StatusTab:CreateLabel("Next: Waiting...")
-local MoneyLabel = StatusTab:CreateLabel("Money Status: -")
+    for _, btn in pairs(lobby:GetDescendants()) do
+        if btn.Name == "Start" and btn:IsA("GuiButton") and btn.Visible and btn.Parent.Visible then
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            local centerX = absPos.X + (absSize.X / 2)
+            local centerY = absPos.Y + (absSize.Y / 2) + 60
 
--- === [ ⚡ ระบบ Auto-Capture (Universal V25) ] ===
-local mt = getrawmetatable(game)
-local oldNamecall = mt.__namecall
-setreadonly(mt, false)
-
-mt.__namecall = newcclosure(function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-    
-    if (method == "InvokeServer" or method == "FireServer") and self.Name == "ByteNetQuery" then
-        if Recording then
-            table.insert(Macro, {
-                Args = args,
-                Wave = GetWave(),
-                RequiredMoney = GetMoney(),
-                Label = "Action #" .. (#Macro + 1)
-            })
-            Rayfield:Notify({Title="บันทึกแล้ว", Content="จำการกระทำสำเร็จ!", Duration=1})
+            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+            return true
         end
     end
-    return oldNamecall(self, ...)
-end)
-setreadonly(mt, true)
-
--- === [ UI Controls ] ===
-
-Main:CreateToggle({
-   Name = "🔴 บันทึกแบบไฮบริด (Universal)",
-   CurrentValue = false,
-   Callback = function(v)
-      Recording = v
-      if v then 
-          Macro = {} 
-          CurrentActionIndex = 1
-          Rayfield:Notify({Title="System", Content="เริ่มบันทึกแล้ว! วางตัวหรืออัปเกรดได้เลย", Duration=2})
-      end
-   end
-})
-
-Main:CreateToggle({
-   Name = "▶️ เริ่มรันมาโคร (Hybrid Queue)",
-   CurrentValue = false,
-   Callback = function(v)
-      Playing = v
-      if v then
-          CurrentActionIndex = 1
-          task.spawn(function()
-              while Playing do
-                  local action = Macro[CurrentActionIndex]
-                  if not action then 
-                      NextLabel:Set("Next: จบงานแล้ว")
-                      break 
-                  end
-
-                  local currentWave = GetWave()
-                  local currentMoney = GetMoney()
-                  
-                  if currentWave >= action.Wave then
-                      if currentMoney >= action.RequiredMoney then
-                          NextLabel:Set("กำลังทำ: " .. action.Label)
-                          pcall(function() B_Query:InvokeServer(unpack(action.Args)) end)
-                          CurrentActionIndex = CurrentActionIndex + 1
-                          task.wait(0.5)
-                      else
-                          NextLabel:Set("Next: " .. action.Label .. " (รอเงิน " .. action.RequiredMoney .. ")")
-                          MoneyLabel:Set("ขาดอีก: " .. (action.RequiredMoney - currentMoney))
-                      end
-                  else
-                      NextLabel:Set("Next: " .. action.Label .. " (รอ Wave " .. action.Wave .. ")")
-                  end
-                  task.wait(0.2)
-              end
-          end)
-      end
-   end
-})
-
--- === [ File Management ] ===
-
-FileTab:CreateButton({
-   Name = "💾 Save Macro to Workspace",
-   Callback = function()
-      writefile("RTD_Hybrid_Macro.json", HttpService:JSONEncode(Macro))
-      Rayfield:Notify({Title="Success", Content="เซฟไฟล์ลงเครื่อง Delta แล้ว", Duration=2})
-   end
-})
-
-FileTab:CreateButton({
-   Name = "📂 Load Macro from Workspace",
-   Callback = function()
-      if isfile("RTD_Hybrid_Macro.json") then
-          Macro = HttpService:JSONEncode(readfile("RTD_Hybrid_Macro.json"))
-          Rayfield:Notify({Title="Success", Content="โหลดข้อมูลสำเร็จ!", Duration=2})
-      else
-          Rayfield:Notify({Title="Error", Content="ไม่พบไฟล์เซฟ", Duration=2})
-      end
-   end
-})
-
--- === [ Logic Functions ] ===
-local function GetWave()
-    local w = workspace:FindFirstChild("Wave") or RS:FindFirstChild("Wave")
-    return (w and w.Value) or 0
 end
 
-local function GetMoney()
-    local s = LP:FindFirstChild("leaderstats")
-    if s and s:FindFirstChild("Money") then return s.Money.Value end
-    return 0
-end
+task.spawn(function()
+    local locations = {
+        CFrame.new(-19.4254074, 19.6875057, -158.799988),
+        CFrame.new(1.57457733, 19.6875057, -158.799988),
+        CFrame.new(22.5745888, 19.6875057, -158.799988),
+        CFrame.new(43.5745735, 19.6875057, -158.799988)
+    }
 
--- === [ ⚡ ระบบดักจับ (Hooking) ] ===
-if TargetRemote and TargetRemote:IsA("RemoteFunction") then
-    local oldInvoke
-    oldInvoke = hookfunction(TargetRemote.InvokeServer, function(self, ...)
-        local args = {...}
-        if Recording then
-            table.insert(Macro, {
-                Args = args,
-                Wave = GetWave(),
-                Money = GetMoney(),
-                Label = "Action #" .. (#Macro + 1)
-            })
-            Rayfield:Notify({Title="บันทึกแล้ว!", Content="บันทึกการกระทำที่ "..#Macro, Duration=1})
-            CountLabel:Set("Recorded: " .. #Macro .. " Actions")
+    while true do
+        if not isInLobby() then 
+            -- ถ้าเข้าด่านแล้ว ส่วนวาร์ปจะหยุดทำงาน (แต่ส่วนส่ง Remote ข้างบนยังรันต่อ)
+            task.wait(5)
+        else
+            for i, pos in ipairs(locations) do
+                if not isInLobby() then break end
+                local char = player.Character or player.CharacterAdded:Wait()
+                local root = char:WaitForChild("HumanoidRootPart")
+                root.CFrame = pos
+                task.wait(0.8) 
+                local startTime = tick()
+                while tick() - startTime < 5 do
+                    if not isInLobby() then break end
+                    forceClickStart()
+                    task.wait(0.3)
+                end
+                task.wait(1)
+            end
         end
-        return oldInvoke(self, ...)
-    end)
-else
-    Rayfield:Notify({Title="Warning", Content="ไม่พบ Remote สำหรับบันทึกอัตโนมัติ", Duration=5})
-end
-
--- === [ UI Controls ] ===
-
-Main:CreateToggle({
-   Name = "🔴 เริ่มบันทึก (Recording)",
-   CurrentValue = false,
-   Callback = function(v)
-      Recording = v
-      if v then
-          Macro = {}
-          CountLabel:Set("Recorded: 0 Actions")
-          Rayfield:Notify({Title="System", Content="เริ่มการบันทึก... กรุณาวางยูนิต", Duration=2})
-      else
-          Rayfield:Notify({Title="System", Content="หยุดบันทึก! ทั้งหมด: "..#Macro.." รายการ", Duration=3})
-      end
-   end
-})
-
-Main:CreateToggle({
-   Name = "▶️ รันมาโคร (Auto Play)",
-   CurrentValue = false,
-   Callback = function(v)
-      Playing = v
-      if v then
-          CurrentActionIndex = 1
-          task.spawn(function()
-              while Playing do
-                  local action = Macro[CurrentActionIndex]
-                  if not action then 
-                      StatusLabel:Set("Status: ✅ จบการทำงาน")
-                      break 
-                  end
-
-                  if GetWave() >= action.Wave and GetMoney() >= action.Money then
-                      StatusLabel:Set("Status: 🚀 กำลังทำ "..action.Label)
-                      pcall(function()
-                          TargetRemote:InvokeServer(unpack(action.Args))
-                      end)
-                      CurrentActionIndex = CurrentActionIndex + 1
-                      task.wait(0.5)
-                  else
-                      StatusLabel:Set("Status: ⏳ รอเงิน/เวฟ ("..action.Label..")")
-                  end
-                  task.wait(0.2)
-              end
-          end)
-      end
-   end
-})
-
--- === [ File Management ] ===
-FileTab:CreateButton({
-   Name = "💾 Save to File",
-   Callback = function()
-      writefile("RTD_Macro_V25.json", HttpService:JSONEncode(Macro))
-      Rayfield:Notify({Title="Saved", Content="บันทึกลงเครื่องแล้ว", Duration=2})
-   end
-})
-
-FileTab:CreateButton({
-   Name = "📂 Load from File",
-   Callback = function()
-      if isfile("RTD_Macro_V25.json") then
-          Macro = HttpService:JSONDecode(readfile("RTD_Macro_V25.json"))
-          CountLabel:Set("Recorded: " .. #Macro .. " Actions")
-          Rayfield:Notify({Title="Loaded", Content="โหลดไฟล์สำเร็จ", Duration=2})
-      else
-          Rayfield:Notify({Title="Error", Content="ไม่พบไฟล์เซฟ", Duration=2})
-      end
-   end
-})
-    if Recording then
-        -- บันทึกข้อมูล
-        table.insert(Macro, {
-            Args = args,
-            Wave = GetWave(),
-            RequiredMoney = GetMoney(),
-            Label = "Action #" .. (#Macro + 1)
-        })
-        -- แจ้งเตือนทุกครั้งที่กด (เพื่อให้รู้ว่าบันทึกติดไหม)
-        Rayfield:Notify({
-            Title = "บันทึกสำเร็จ ✅",
-            Content = "ลำดับที่: " .. #Macro .. " | Wave: " .. GetWave(),
-            Duration = 1
-        })
+        task.wait(1)
     end
-    return oldInvoke(self, ...)
 end)
-
--- === [ UI Tabs ] ===
-local Main = Window:CreateTab("Macro Controls", 4483362458)
-local StatusTab = Window:CreateTab("Status", 4483362458)
-
-local NextLabel = StatusTab:CreateLabel("Next: Waiting...")
-local CountLabel = StatusTab:CreateLabel("Total Actions: 0")
-
--- === [ 🔴 Toggle บันทึก ] ===
-Main:CreateToggle({
-   Name = "🔴 เริ่มการบันทึก (Recording)",
-   CurrentValue = false,
-   Callback = function(v)
-      Recording = v
-      if v then
-          Macro = {} -- ล้างค่าเก่า
-          Rayfield:Notify({
-              Title = "เริ่มบันทึกแล้ว!",
-              Content = "ระบบกำลังดักจับการวางยูนิตของคุณ...",
-              Duration = 3
-          })
-      else
-          -- เมื่อกดปิด (หยุดอัด) ให้แจ้งเตือนสรุปผล
-          Rayfield:Notify({
-              Title = "หยุดการบันทึกแล้ว ⏹️",
-              Content = "บันทึกไปทั้งหมด: " .. #Macro .. " การกระทำ",
-              Duration = 5
-          })
-          CountLabel:Set("Total Actions: " .. #Macro)
-      end
-   end
-})
-
--- === [ ▶️ Toggle รันมาโคร ] ===
-Main:CreateToggle({
-   Name = "▶️ รันมาโคร (Auto Play)",
-   CurrentValue = false,
-   Callback = function(v)
-      Playing = v
-      if v then
-          if #Macro == 0 then
-              Rayfield:Notify({Title="Error", Content="ไม่มีข้อมูลมาโคร! กรุณาอัดหรือโหลดไฟล์ก่อน", Duration=3})
-              return
-          end
-          
-          CurrentActionIndex = 1
-          Rayfield:Notify({Title="Started!", Content="เริ่มทำงานลำดับที่ 1 จาก " .. #Macro, Duration=3})
-          
-          task.spawn(function()
-              while Playing do
-                  local action = Macro[CurrentActionIndex]
-                  if not action then 
-                      NextLabel:Set("✅ จบการทำงานทั้งหมดแล้ว")
-                      Playing = false
-                      break 
-                  end
-
-                  local currentWave = GetWave()
-                  local currentMoney = GetMoney()
-
-                  -- เงื่อนไข: Wave ถึง และ เงินถึง
-                  if currentWave >= action.Wave and currentMoney >= action.RequiredMoney then
-                      NextLabel:Set("🚀 กำลังส่งข้อมูล: " .. action.Label)
-                      
-                      -- พยายามส่งข้อมูลไปที่ Server
-                      local success, err = pcall(function()
-                          return B_Query:InvokeServer(unpack(action.Args))
-                      end)
-
-                      if success then
-                          CurrentActionIndex = CurrentActionIndex + 1
-                          task.wait(0.7) -- หน่วงเวลาเล็กน้อยเพื่อให้เซิร์ฟเวอร์ตอบรับ
-                      else
-                          warn("วางไม่สำเร็จ: " .. tostring(err))
-                          task.wait(1) -- ถ้า Error ให้รอแป๊บหนึ่งแล้วลองใหม่ใน Loop หน้า
-                      end
-                  else
-                      -- แสดงสถานะการรอ
-                      NextLabel:Set("⏳ รอ " .. action.Label .. " (W:" .. action.Wave .. "/M:" .. action.RequiredMoney .. ")")
-                  end
-                  task.wait(0.3)
-              end
-          end)
-      end
-   end
-})
-
--- === [ File Management ] ===
-local FileTab = Window:CreateTab("Files", 4483362458)
-FileTab:CreateButton({
-   Name = "💾 เซฟลงไฟล์",
-   Callback = function()
-      writefile("RTD_Hybrid_Macro.json", HttpService:JSONEncode(Macro))
-      Rayfield:Notify({Title="Saved!", Content="เซฟมาโคร " .. #Macro .. " รายการลงไฟล์แล้ว", Duration=3})
-   end
-})
-
-FileTab:CreateButton({
-   Name = "📂 โหลดจากไฟล์",
-   Callback = function()
-      if isfile("RTD_Hybrid_Macro.json") then
-          Macro = HttpService:JSONDecode(readfile("RTD_Hybrid_Macro.json"))
-          CountLabel:Set("Total Actions: " .. #Macro)
-          Rayfield:Notify({Title="Loaded!", Content="โหลดมาโคร " .. #Macro .. " รายการแล้ว", Duration=3})
-      else
-          Rayfield:Notify({Title="Error", Content="ไม่พบไฟล์เซฟ", Duration=3})
-      end
-   end
-})
-    return 0
-end
-
--- === [ Tabs ] ===
-local Main = Window:CreateTab("Macro", 4483362458)
-local StatusTab = Window:CreateTab("Status", 4483362458)
-
-local NextLabel = StatusTab:CreateLabel("Next: Waiting...")
-local MoneyLabel = StatusTab:CreateLabel("Money Status: -")
-
--- === [ ⚡ ระบบ Auto-Capture (Hybrid) ] ===
-local oldInvoke
-oldInvoke = hookfunction(B_Query.InvokeServer, function(self, ...)
-    local args = {...}
-    if Recording then
-        table.insert(Macro, {
-            Args = args,
-            Wave = GetWave(),
-            RequiredMoney = GetMoney(), -- จำเงินที่ต้องใช้ในตอนนั้น
-            Label = "Action #" .. (#Macro + 1)
-        })
-        Rayfield:Notify({Title="บันทึกแล้ว", Content="จำ Wave และจำนวนเงินแล้ว", Duration=1})
-    end
-    return oldInvoke(self, ...)
-end)
-
--- === [ UI Controls ] ===
-
-Main:CreateToggle({
-   Name = "🔴 บันทึกแบบไฮบริด (Wave + Money)",
-   CurrentValue = false,
-   Callback = function(v)
-      Recording = v
-      if v then Macro = {} CurrentActionIndex = 1 end
-   end
-})
-
-Main:CreateToggle({
-   Name = "▶️ เริ่มรันมาโคร (Hybrid Queue)",
-   CurrentValue = false,
-   Callback = function(v)
-      Playing = v
-      if v then
-          CurrentActionIndex = 1
-          task.spawn(function()
-              while Playing do
-                  local action = Macro[CurrentActionIndex]
-                  if not action then 
-                      NextLabel:Set("Next: จบงานแล้ว")
-                      break 
-                  end
-
-                  local currentWave = GetWave()
-                  local currentMoney = GetMoney()
-                  
-                  -- เช็คเงื่อนไข: ถึง Wave หรือยัง? และ เงินพอหรือยัง?
-                  if currentWave >= action.Wave then
-                      if currentMoney >= action.RequiredMoney then
-                          -- เงินพอและถึงเวฟ -> ทำงาน
-                          NextLabel:Set("กำลังทำ: " .. action.Label)
-                          pcall(function() B_Query:InvokeServer(unpack(action.Args)) end)
-                          
-                          CurrentActionIndex = CurrentActionIndex + 1 -- ไปลำดับถัดไป
-                          task.wait(0.5) -- รอช่วงสั้นๆ ป้องกันรันซ้อน
-                      else
-                          -- ถึงเวฟแต่เงินยังไม่พอ -> รอเงิน
-                          NextLabel:Set("Next: " .. action.Label .. " (รอเงินให้ถึง " .. action.RequiredMoney .. ")")
-                          MoneyLabel:Set("ขาดอีก: " .. (action.RequiredMoney - currentMoney))
-                      end
-                  else
-                      -- ยังไม่ถึงเวฟ -> รอเวฟ
-                      NextLabel:Set("Next: " .. action.Label .. " (รอ Wave " .. action.Wave .. ")")
-                  end
-                  
-                  task.wait(0.2)
-              end
-          end)
-      end
-   end
-})
-
--- === [ File Management ] ===
-local FileTab = Window:CreateTab("Files", 4483362458)
-FileTab:CreateButton({
-   Name = "💾 Save Hybrid Macro",
-   Callback = function()
-      writefile("RTD_Hybrid_Macro.json", HttpService:JSONEncode(Macro))
-      Rayfield:Notify({Title="Success", Content="เซฟไฟล์ไฮบริดแล้ว", Duration=2})
-   end
-})
-FileTab:CreateButton({
-   Name = "📂 โหลดไฟล์จาก Workspace",
-   Callback = function()
-      if isfile("RTD_Hybrid_Macro.json") then
-          Macro = HttpService:JSONDecode(readfile("RTD_Hybrid_Macro.json"))
-          Rayfield:Notify({Title="Success", Content="โหลดข้อมูลมาโครสำเร็จ!", Duration=2})
-      else
-          Rayfield:Notify({Title="Error", Content="ไม่พบไฟล์เซฟใน Workspace", Duration=2})
-      end
-   end
-})
